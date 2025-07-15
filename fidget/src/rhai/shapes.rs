@@ -13,7 +13,11 @@ pub fn register(engine: &mut rhai::Engine) {
     use crate::shapes::*;
 
     register_shape::<Circle>(engine);
+    register_shape::<Rect>(engine);
     register_shape::<Sphere>(engine);
+    register_shape::<Cuboid>(engine);
+    register_shape::<Cylinder>(engine);
+    register_shape::<Torus>(engine);
 
     register_shape::<Move>(engine);
     register_shape::<Scale>(engine);
