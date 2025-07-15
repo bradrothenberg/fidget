@@ -25,6 +25,26 @@ impl From<Circle> for Tree {
     }
 }
 
+/// Axis-aligned rectangle
+#[derive(Clone, Facet)]
+pub struct Rect {
+    /// Center of the rectangle (in XY)
+    pub center: Vec2,
+    /// Half-size of the rectangle on each axis
+    pub half_size: Vec2,
+}
+
+impl From<Rect> for Tree {
+    fn from(v: Rect) -> Self {
+        let (x, y, _) = Tree::axes();
+        let dx = (x - v.center.x).abs() - v.half_size.x;
+        let dy = (y - v.center.y).abs() - v.half_size.y;
+        let ox = dx.max(0.0);
+        let oy = dy.max(0.0);
+        (ox.square() + oy.square()).sqrt() + dx.max(dy).min(0.0)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // 3D shapes
 
@@ -45,6 +65,77 @@ impl From<Sphere> for Tree {
             + (z - v.center.z).square())
         .sqrt()
             - v.radius
+    }
+}
+
+/// Axis-aligned box
+#[derive(Clone, Facet)]
+pub struct Cuboid {
+    /// Center of the box (in XYZ)
+    pub center: Vec3,
+    /// Half-size of the box on each axis
+    pub half_size: Vec3,
+}
+
+impl From<Cuboid> for Tree {
+    fn from(v: Cuboid) -> Self {
+        let (x, y, z) = Tree::axes();
+        let dx = (x - v.center.x).abs() - v.half_size.x;
+        let dy = (y - v.center.y).abs() - v.half_size.y;
+        let dz = (z - v.center.z).abs() - v.half_size.z;
+        let ox = dx.max(0.0);
+        let oy = dy.max(0.0);
+        let oz = dz.max(0.0);
+        (ox.square() + oy.square() + oz.square()).sqrt()
+            + dx.max(dy.max(dz)).min(0.0)
+    }
+}
+
+/// Finite cylinder aligned with the Y axis
+#[derive(Clone, Facet)]
+pub struct Cylinder {
+    /// Center of the cylinder (in XYZ)
+    pub center: Vec3,
+    /// Cylinder radius
+    pub radius: f64,
+    /// Half-height of the cylinder
+    pub half_height: f64,
+}
+
+impl From<Cylinder> for Tree {
+    fn from(v: Cylinder) -> Self {
+        let (x, y, z) = Tree::axes();
+        let px = x - v.center.x;
+        let py = y - v.center.y;
+        let pz = z - v.center.z;
+        let dx = (px.square() + pz.square()).sqrt() - v.radius;
+        let dy = py.abs() - v.half_height;
+        let ox = dx.max(0.0);
+        let oy = dy.max(0.0);
+        (ox.square() + oy.square()).sqrt() + dx.max(dy).min(0.0)
+    }
+}
+
+/// Torus aligned with the Y axis
+#[derive(Clone, Facet)]
+pub struct Torus {
+    /// Center of the torus (in XYZ)
+    pub center: Vec3,
+    /// Major radius of the torus
+    pub major_radius: f64,
+    /// Radius of the tube
+    pub tube_radius: f64,
+}
+
+impl From<Torus> for Tree {
+    fn from(v: Torus) -> Self {
+        let (x, y, z) = Tree::axes();
+        let px = x - v.center.x;
+        let py = y - v.center.y;
+        let pz = z - v.center.z;
+        let q = ((px.square() + pz.square()).sqrt() - v.major_radius).square()
+            + py.square();
+        q.sqrt() - v.tube_radius
     }
 }
 
@@ -180,9 +271,97 @@ impl From<Scale> for Tree {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{shape::EzShape, vm::VmShape};
+    use approx::assert_relative_eq;
 
     #[test]
     fn circle_docstring() {
         assert_eq!(Circle::SHAPE.doc, &[" 2D circle"]);
+    }
+
+    #[test]
+    fn rect_docstring() {
+        assert_eq!(Rect::SHAPE.doc, &[" Axis-aligned rectangle"]);
+    }
+
+    #[test]
+    fn cuboid_docstring() {
+        assert_eq!(Cuboid::SHAPE.doc, &[" Axis-aligned box"]);
+    }
+
+    #[test]
+    fn cylinder_docstring() {
+        assert_eq!(Cylinder::SHAPE.doc, &[" Finite cylinder aligned with the Y axis"]);
+    }
+
+    #[test]
+    fn torus_docstring() {
+        assert_eq!(Torus::SHAPE.doc, &[" Torus aligned with the Y axis"]);
+    }
+
+    #[test]
+    fn rect_sdf() {
+        let rect = Rect {
+            center: Vec2 { x: 0.0, y: 0.0 },
+            half_size: Vec2 { x: 1.0, y: 2.0 },
+        };
+        let shape = VmShape::from(Tree::from(rect));
+        let tape = shape.ez_point_tape();
+        let mut eval = VmShape::new_point_eval();
+        assert_relative_eq!(eval.eval(&tape, 0.0f32, 0.0, 0.0).unwrap().0, -1.0);
+        assert_relative_eq!(eval.eval(&tape, 2.0, 0.0, 0.0).unwrap().0, 1.0);
+        assert_relative_eq!(eval.eval(&tape, 0.0, 3.0, 0.0).unwrap().0, 1.0);
+    }
+
+    #[test]
+    fn cuboid_sdf() {
+        let cuboid = Cuboid {
+            center: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
+            half_size: Vec3 {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+        };
+        let shape = VmShape::from(Tree::from(cuboid));
+        let tape = shape.ez_point_tape();
+        let mut eval = VmShape::new_point_eval();
+        assert_relative_eq!(eval.eval(&tape, 0.0, 0.0, 0.0).unwrap().0, -1.0);
+        assert_relative_eq!(eval.eval(&tape, 2.0, 0.0, 0.0).unwrap().0, 1.0);
+        assert_relative_eq!(eval.eval(&tape, 0.0, 0.0, 4.0).unwrap().0, 1.0);
+    }
+
+    #[test]
+    fn cylinder_sdf() {
+        let cyl = Cylinder {
+            center: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
+            radius: 1.0,
+            half_height: 2.0,
+        };
+        let shape = VmShape::from(Tree::from(cyl));
+        let tape = shape.ez_point_tape();
+        let mut eval = VmShape::new_point_eval();
+        assert_relative_eq!(eval.eval(&tape, 0.0, 0.0, 0.0).unwrap().0, -1.0);
+        assert_relative_eq!(eval.eval(&tape, 2.0, 0.0, 0.0).unwrap().0, 1.0);
+        assert_relative_eq!(eval.eval(&tape, 0.0, 3.0, 0.0).unwrap().0, 1.0);
+        assert_relative_eq!(
+            eval.eval(&tape, 2.0, 3.0, 0.0).unwrap().0,
+            1.4142135
+        );
+    }
+
+    #[test]
+    fn torus_sdf_values() {
+        let torus = Torus {
+            center: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
+            major_radius: 3.0,
+            tube_radius: 1.0,
+        };
+        let shape = VmShape::from(Tree::from(torus));
+        let tape = shape.ez_point_tape();
+        let mut eval = VmShape::new_point_eval();
+        assert_relative_eq!(eval.eval(&tape, 4.0, 0.0, 0.0).unwrap().0, 0.0);
+        assert_relative_eq!(eval.eval(&tape, 3.0, 0.0, 0.0).unwrap().0, -1.0);
+        assert_relative_eq!(eval.eval(&tape, 0.0, 0.0, 0.0).unwrap().0, 2.0);
     }
 }
